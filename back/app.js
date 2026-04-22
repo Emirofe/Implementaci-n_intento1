@@ -10,9 +10,10 @@ const createAdminRouter = require("./Admin/routes");
 const createVendedorRouter = require("./Vendedor/CRUD");
 const createVendedorOrdersRouter = require("./Vendedor/Pedidos");
 const createCompradorRouter = require("./Comprador/productos");
-const createCompradorCuentaRouter = require("./Comprador/cuenta");
+const createCompradorCuentaRouter = require("./Usuario/cuenta");
 const createCompradorCarritoRouter = require("./Comprador/carrito");
 const createCompradorPedidosRouter = require("./Comprador/pedidos");
+const createUsuarioWishlistRouter = require("./Usuario/wishlist");
 const createVendedorBusinessRouter = require("./Vendedor/Negocio");
 
 
@@ -73,19 +74,7 @@ const storage = multer.diskStorage({
 
 const upload = multer({ storage });
 
-// Obtener productos
-async function obtenerProductos() {
-  const result = await pool.query("SELECT * FROM Productos");
-  return result.rows;
-}
-
-// Obtener categorías
-async function obtenerCategorias() {
-  const result = await pool.query(
-    "SELECT DISTINCT categoria FROM Productos"
-  );
-  return result.rows.map((c) => c.categoria);
-}
+// (obtenerProductos and obtenerCategorias removed — no longer used by any router)
 
 app.use(
   createLoginRouter({
@@ -96,8 +85,6 @@ app.use(
 app.use(
   createAdminRouter({
     pool,
-    upload,
-    obtenerProductos,
   })
 );
 
@@ -128,8 +115,12 @@ app.use(
 app.use(
   createVendedorRouter({
     pool,
-    obtenerProductos,
-    obtenerCategorias,
+  })
+);
+
+app.use(
+  createUsuarioWishlistRouter({
+    pool,
   })
 );
 

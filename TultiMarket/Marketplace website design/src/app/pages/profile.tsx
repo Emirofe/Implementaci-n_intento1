@@ -1,26 +1,77 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
-import { User, MapPin, Plus, Trash2, LogOut, Package, Heart, CreditCard, ShieldCheck, Settings } from "lucide-react";
+import {
+  User, MapPin, Plus, Trash2, LogOut, Package, Heart,
+  CreditCard, ShieldCheck, AlertTriangle, Loader2
+} from "lucide-react";
 import { useStore } from "../context/store-context";
-import { mockPaymentMethods as initialPayments } from "../data/mock-data";
 import { Navbar } from "../components/layout/navbar";
 import { Footer } from "../components/layout/footer";
 import { toast } from "sonner";
+import {
+  updateMiCuentaApi,
+  cambiarPasswordApi,
+  eliminarCuentaApi,
+  addMetodoPagoApi,
+  deleteMetodoPagoApi,
+} from "../api/api-client";
+import type { PaymentMethod } from "../data/mock-data";
 
 export function ProfilePage() {
-  const { currentUser, addresses, addAddress, removeAddress, logout } = useStore();
+  const {
+    currentUser,
+    addresses,
+    paymentMethods,
+    addAddress,
+    removeAddress,
+    reloadAddresses,
+    reloadPaymentMethods,
+    logout,
+  } = useStore();
   const navigate = useNavigate();
-  const [name, setName] = useState(currentUser?.name || "");
-  const [email, setEmail] = useState(currentUser?.email || "");
-  const [phone, setPhone] = useState(currentUser?.phone || "");
+
+  // ─── Info Personal ──────────────────────────────────────────────
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [savingProfile, setSavingProfile] = useState(false);
+
+  // ─── Direcciones ────────────────────────────────────────────────
   const [showAddAddress, setShowAddAddress] = useState(false);
   const [newAddr, setNewAddr] = useState({ label: "", street: "", city: "", state: "", zip: "", country: "" });
-  
-  // New States for Tabs and Security
+
+  // ─── Métodos de Pago ────────────────────────────────────────────
+  const [showAddPayment, setShowAddPayment] = useState(false);
+  const [newPayment, setNewPayment] = useState({ provider: "Visa", lastFour: "", expiry: "" });
+  const [deletingPaymentId, setDeletingPaymentId] = useState<string | null>(null);
+
+  // ─── Tabs y Seguridad ───────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<"info" | "addresses" | "payments" | "security">("info");
   const [passwords, setPasswords] = useState({ current: "", new: "", confirm: "" });
-  const [payments, setPayments] = useState(initialPayments);
+  const [changingPassword, setChangingPassword] = useState(false);
 
+  // ─── Eliminar Cuenta ───────────────────────────────────────────
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletePassword, setDeletePassword] = useState("");
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
+  // ─── Cargar datos iniciales ────────────────────────────────────
+  useEffect(() => {
+    if (currentUser) {
+      setName(currentUser.name || "");
+      setEmail(currentUser.email || "");
+      setPhone(currentUser.phone || "");
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    reloadAddresses();
+    reloadPaymentMethods();
+  }, []);
+
+  // ────────────────────────────────────────────────────────────────
+  // Si no hay sesión, redirigir a login
+  // ────────────────────────────────────────────────────────────────
   if (!currentUser) {
     return (
       <div className="min-h-screen flex flex-col bg-gray-50">
@@ -36,32 +87,146 @@ export function ProfilePage() {
     );
   }
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  // ────────────────────────────────────────────────────────────────
+  // INFO PERSONAL → updateMiCuentaApi
+  // ────────────────────────────────────────────────────────────────
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast.success("Perfil actualizado");
+    if (!name.trim() || !email.trim()) {
+      toast.error("Nombre y email son obligatorios");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      await updateMiCuentaApi({
+        nombre: name.trim(),
+        email: email.trim(),
+        telefono: phone.trim() || undefined,
+      });
+      toast.success("Perfil actualizado correctamente");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al actualizar perfil";
+      toast.error(msg);
+    } finally {
+      setSavingProfile(false);
+    }
   };
 
-  const handleAddAddress = (e: React.FormEvent) => {
+  // ────────────────────────────────────────────────────────────────
+  // DIRECCIONES → addDireccionApi / deleteDireccionApi (via store)
+  // ────────────────────────────────────────────────────────────────
+  const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
-    addAddress({ ...newAddr, isDefault: false });
-    setNewAddr({ label: "", street: "", city: "", state: "", zip: "", country: "" });
-    setShowAddAddress(false);
-    toast.success("Direccion agregada");
+    try {
+      await addAddress({ ...newAddr, isDefault: addresses.length === 0 });
+      setNewAddr({ label: "", street: "", city: "", state: "", zip: "", country: "" });
+      setShowAddAddress(false);
+      toast.success("Direccion agregada");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al agregar direccion";
+      toast.error(msg);
+    }
   };
-  const handleUpdatePassword = (e: React.FormEvent) => {
+
+  // ────────────────────────────────────────────────────────────────
+  // MÉTODOS DE PAGO → addMetodoPagoApi / deleteMetodoPagoApi
+  // ────────────────────────────────────────────────────────────────
+  const handleAddPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (!/^\d{4}$/.test(newPayment.lastFour)) {
+      toast.error("Los últimos 4 dígitos deben ser exactamente 4 números");
+      return;
+    }
+    if (!/^(0[1-9]|1[0-2])\/\d{2}$/.test(newPayment.expiry)) {
+      toast.error("La fecha de expiración debe tener formato MM/YY");
+      return;
+    }
+
+    try {
+      await addMetodoPagoApi({
+        proveedor_pago: newPayment.provider,
+        token_pasarela: `tok_sim_${Date.now()}`,
+        ultimos_cuatro: newPayment.lastFour,
+        fecha_expiracion: newPayment.expiry,
+      });
+      setNewPayment({ provider: "Visa", lastFour: "", expiry: "" });
+      setShowAddPayment(false);
+      await reloadPaymentMethods();
+      toast.success("Metodo de pago agregado");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al agregar metodo de pago";
+      toast.error(msg);
+    }
+  };
+
+  const handleRemovePayment = async (pm: PaymentMethod) => {
+    setDeletingPaymentId(pm.id);
+    try {
+      await deleteMetodoPagoApi(Number(pm.id));
+      await reloadPaymentMethods();
+      toast.success("Metodo de pago eliminado");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al eliminar metodo de pago";
+      toast.error(msg);
+    } finally {
+      setDeletingPaymentId(null);
+    }
+  };
+
+  // ────────────────────────────────────────────────────────────────
+  // CAMBIAR CONTRASEÑA → cambiarPasswordApi
+  // ────────────────────────────────────────────────────────────────
+  const handleUpdatePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (passwords.new !== passwords.confirm) {
       toast.error("Las contraseñas no coinciden");
       return;
     }
-    toast.success("Contraseña actualizada exitosamente");
-    setPasswords({ current: "", new: "", confirm: "" });
+    if (passwords.new.length < 8) {
+      toast.error("La nueva contraseña debe tener al menos 8 caracteres");
+      return;
+    }
+    setChangingPassword(true);
+    try {
+      await cambiarPasswordApi(passwords.current, passwords.new);
+      toast.success("Contraseña actualizada correctamente");
+      setPasswords({ current: "", new: "", confirm: "" });
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al cambiar contraseña";
+      toast.error(msg);
+    } finally {
+      setChangingPassword(false);
+    }
   };
 
-  const handleRemovePayment = (id: string) => {
-    setPayments(prev => prev.filter(p => p.id !== id));
-    toast.success("Metodo de pago eliminado");
+  // ────────────────────────────────────────────────────────────────
+  // ELIMINAR CUENTA → eliminarCuentaApi
+  // ────────────────────────────────────────────────────────────────
+  const handleDeleteAccount = async () => {
+    if (!deletePassword) {
+      toast.error("Ingresa tu contraseña para confirmar");
+      return;
+    }
+    setDeletingAccount(true);
+    try {
+      await eliminarCuentaApi(deletePassword);
+      toast.success("Cuenta eliminada. Serás redirigido...");
+      setTimeout(async () => {
+        await logout();
+        navigate("/");
+      }, 1500);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Error al eliminar cuenta";
+      toast.error(msg);
+    } finally {
+      setDeletingAccount(false);
+    }
   };
+
+  // ────────────────────────────────────────────────────────────────
+  // RENDER
+  // ────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <Navbar />
@@ -90,8 +255,8 @@ export function ProfilePage() {
             </div>
           </Link>
           <button
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              await logout();
               navigate("/");
             }}
             className="bg-white rounded-xl border border-border p-5 hover:shadow-md transition-all flex items-center gap-4 text-left"
@@ -127,7 +292,9 @@ export function ProfilePage() {
           ))}
         </div>
 
-        {/* Tab Content */}
+        {/* ══════════════════════════════════════════════════════════ */}
+        {/*  TAB: INFORMACIÓN PERSONAL                               */}
+        {/* ══════════════════════════════════════════════════════════ */}
         <div className="space-y-6">
           {activeTab === "info" && (
             <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
@@ -150,6 +317,7 @@ export function ProfilePage() {
                     onChange={(e) => setName(e.target.value)}
                     className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
                     style={{ fontSize: 14 }}
+                    required
                   />
                 </div>
                 <div>
@@ -160,6 +328,7 @@ export function ProfilePage() {
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
                     style={{ fontSize: 14 }}
+                    required
                   />
                 </div>
                 <div>
@@ -175,16 +344,21 @@ export function ProfilePage() {
                 <div className="flex items-end">
                   <button
                     type="submit"
-                    className="w-full sm:w-auto px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors"
+                    disabled={savingProfile}
+                    className="w-full sm:w-auto px-6 py-3 bg-primary text-white rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
                     style={{ fontSize: 14, fontWeight: 600 }}
                   >
-                    Guardar Cambios
+                    {savingProfile && <Loader2 size={16} className="animate-spin" />}
+                    {savingProfile ? "Guardando..." : "Guardar Cambios"}
                   </button>
                 </div>
               </form>
             </div>
           )}
 
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/*  TAB: DIRECCIONES                                        */}
+          {/* ══════════════════════════════════════════════════════════ */}
           {activeTab === "addresses" && (
             <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-6">
@@ -269,9 +443,9 @@ export function ProfilePage() {
                         </p>
                       </div>
                       <button
-                        onClick={() => {
-                          removeAddress(addr.id);
-                          toast.error("Direccion eliminada");
+                        onClick={async () => {
+                          await removeAddress(addr.id);
+                          toast.success("Direccion eliminada");
                         }}
                         className="text-gray-400 hover:text-red-500 p-2 transition-colors"
                       >
@@ -284,6 +458,9 @@ export function ProfilePage() {
             </div>
           )}
 
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/*  TAB: MÉTODOS DE PAGO (CONECTADO AL BACKEND)             */}
+          {/* ══════════════════════════════════════════════════════════ */}
           {activeTab === "payments" && (
             <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
               <div className="flex items-center justify-between mb-6">
@@ -293,88 +470,209 @@ export function ProfilePage() {
                 <button
                   className="flex items-center gap-1 text-primary hover:underline"
                   style={{ fontSize: 14, fontWeight: 500 }}
-                  onClick={() => toast.info("Funcionalidad de agregar tarjeta proximamente con Pasarela Real")}
+                  onClick={() => setShowAddPayment(!showAddPayment)}
                 >
                   <Plus size={16} /> Agregar Tarjeta
                 </button>
               </div>
 
-              <div className="space-y-4">
-                {payments.map((pm) => (
-                  <div key={pm.id} className="flex items-center justify-between p-4 border border-border rounded-xl hover:bg-gray-50 transition-colors">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-8 bg-gray-100 rounded flex items-center justify-center border border-border">
-                        <span style={{ fontSize: 10, fontWeight: 700 }}>{pm.provider.toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <p style={{ fontSize: 14, fontWeight: 600 }}>**** **** **** {pm.lastFour}</p>
-                        <p className="text-muted-foreground" style={{ fontSize: 13 }}>Expira {pm.expiry}</p>
-                      </div>
-                      {pm.isDefault && (
-                        <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded-full" style={{ fontSize: 10, fontWeight: 600 }}>ACTIVA</span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => handleRemovePayment(pm.id)}
-                      className="text-gray-400 hover:text-red-500 p-2 transition-colors"
+              {/* Formulario para agregar método de pago */}
+              {showAddPayment && (
+                <form onSubmit={handleAddPayment} className="bg-gray-50 rounded-lg p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3 border border-dashed border-primary/30">
+                  <div>
+                    <label className="block mb-1 text-muted-foreground" style={{ fontSize: 12 }}>Proveedor</label>
+                    <select
+                      value={newPayment.provider}
+                      onChange={(e) => setNewPayment({ ...newPayment, provider: e.target.value })}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white"
+                      style={{ fontSize: 14 }}
                     >
-                      <Trash2 size={18} />
-                    </button>
+                      <option value="Visa">Visa</option>
+                      <option value="MasterCard">MasterCard</option>
+                      <option value="American Express">American Express</option>
+                      <option value="PayPal">PayPal</option>
+                      <option value="OXXO Pay">OXXO Pay</option>
+                      <option value="Mercado Pago">Mercado Pago</option>
+                      <option value="Carnet">Carnet</option>
+                    </select>
                   </div>
-                ))}
+                  <div>
+                    <label className="block mb-1 text-muted-foreground" style={{ fontSize: 12 }}>Últimos 4 dígitos</label>
+                    <input
+                      placeholder="1234"
+                      maxLength={4}
+                      value={newPayment.lastFour}
+                      onChange={(e) => setNewPayment({ ...newPayment, lastFour: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white"
+                      style={{ fontSize: 14 }}
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-1 text-muted-foreground" style={{ fontSize: 12 }}>Expira (MM/YY)</label>
+                    <input
+                      placeholder="12/28"
+                      maxLength={5}
+                      value={newPayment.expiry}
+                      onChange={(e) => {
+                        let val = e.target.value.replace(/[^\d/]/g, "");
+                        if (val.length === 2 && !val.includes("/") && newPayment.expiry.length < val.length) {
+                          val += "/";
+                        }
+                        setNewPayment({ ...newPayment, expiry: val.slice(0, 5) });
+                      }}
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-white"
+                      style={{ fontSize: 14 }}
+                      required
+                    />
+                  </div>
+                  <div className="flex items-end gap-2">
+                    <button type="submit" className="px-4 py-2 bg-primary text-white rounded-lg" style={{ fontSize: 14 }}>Guardar</button>
+                    <button type="button" onClick={() => setShowAddPayment(false)} className="px-4 py-2 border border-border rounded-lg" style={{ fontSize: 14 }}>Cancelar</button>
+                  </div>
+                </form>
+              )}
+
+              <div className="space-y-4">
+                {paymentMethods.length === 0 ? (
+                  <p className="text-center py-8 text-muted-foreground">No tienes metodos de pago registrados.</p>
+                ) : (
+                  paymentMethods.map((pm) => (
+                    <div key={pm.id} className="flex items-center justify-between p-4 border border-border rounded-xl hover:bg-gray-50 transition-colors">
+                      <div className="flex items-center gap-4">
+                        <div className="w-12 h-8 bg-gray-100 rounded flex items-center justify-center border border-border">
+                          <span style={{ fontSize: 10, fontWeight: 700 }}>{pm.provider.toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p style={{ fontSize: 14, fontWeight: 600 }}>**** **** **** {pm.lastFour}</p>
+                          <p className="text-muted-foreground" style={{ fontSize: 13 }}>Expira {pm.expiry}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handleRemovePayment(pm)}
+                        disabled={deletingPaymentId === pm.id}
+                        className="text-gray-400 hover:text-red-500 p-2 transition-colors disabled:opacity-40"
+                      >
+                        {deletingPaymentId === pm.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                      </button>
+                    </div>
+                  ))
+                )}
               </div>
             </div>
           )}
 
+          {/* ══════════════════════════════════════════════════════════ */}
+          {/*  TAB: SEGURIDAD (cambiar contraseña + eliminar cuenta)   */}
+          {/* ══════════════════════════════════════════════════════════ */}
           {activeTab === "security" && (
-            <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
-              <h3 className="flex items-center gap-2 mb-6" style={{ fontSize: 18, fontWeight: 600 }}>
-                <ShieldCheck size={20} /> Seguridad de la Cuenta
-              </h3>
-              
-              <form onSubmit={handleUpdatePassword} className="max-w-md space-y-4">
-                <div>
-                  <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Contraseña Actual</label>
-                  <input
-                    type="password"
-                    required
-                    value={passwords.current}
-                    onChange={(e) => setPasswords({...passwords, current: e.target.value})}
-                    className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
-                    style={{ fontSize: 14 }}
-                  />
-                </div>
-                <hr className="border-border my-4" />
-                <div>
-                  <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Nueva Contraseña</label>
-                  <input
-                    type="password"
-                    required
-                    value={passwords.new}
-                    onChange={(e) => setPasswords({...passwords, new: e.target.value})}
-                    className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
-                    style={{ fontSize: 14 }}
-                  />
-                </div>
-                <div>
-                  <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Confirmar Nueva Contraseña</label>
-                  <input
-                    type="password"
-                    required
-                    value={passwords.confirm}
-                    onChange={(e) => setPasswords({...passwords, confirm: e.target.value})}
-                    className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
-                    style={{ fontSize: 14 }}
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="w-full bg-primary text-white py-3 rounded-lg hover:bg-primary/90 transition-colors"
-                  style={{ fontSize: 14, fontWeight: 600 }}
-                >
-                  Actualizar Contraseña
-                </button>
-              </form>
+            <div className="space-y-6">
+              {/* Cambiar Contraseña */}
+              <div className="bg-white rounded-xl border border-border p-6 shadow-sm">
+                <h3 className="flex items-center gap-2 mb-6" style={{ fontSize: 18, fontWeight: 600 }}>
+                  <ShieldCheck size={20} /> Cambiar Contraseña
+                </h3>
+
+                <form onSubmit={handleUpdatePassword} className="max-w-md space-y-4">
+                  <div>
+                    <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Contraseña Actual</label>
+                    <input
+                      type="password"
+                      required
+                      value={passwords.current}
+                      onChange={(e) => setPasswords({ ...passwords, current: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
+                      style={{ fontSize: 14 }}
+                    />
+                  </div>
+                  <hr className="border-border my-4" />
+                  <div>
+                    <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      minLength={8}
+                      value={passwords.new}
+                      onChange={(e) => setPasswords({ ...passwords, new: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
+                      style={{ fontSize: 14 }}
+                    />
+                    <p className="text-muted-foreground mt-1" style={{ fontSize: 12 }}>Mínimo 8 caracteres</p>
+                  </div>
+                  <div>
+                    <label className="block mb-1.5 text-muted-foreground" style={{ fontSize: 13 }}>Confirmar Nueva Contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      value={passwords.confirm}
+                      onChange={(e) => setPasswords({ ...passwords, confirm: e.target.value })}
+                      className="w-full px-4 py-3 rounded-lg border border-border bg-gray-50 focus:border-primary outline-none"
+                      style={{ fontSize: 14 }}
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={changingPassword}
+                    className="w-full bg-primary text-white py-3 rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-60 flex items-center justify-center gap-2"
+                    style={{ fontSize: 14, fontWeight: 600 }}
+                  >
+                    {changingPassword && <Loader2 size={16} className="animate-spin" />}
+                    {changingPassword ? "Actualizando..." : "Actualizar Contraseña"}
+                  </button>
+                </form>
+              </div>
+
+              {/* Eliminar Cuenta */}
+              <div className="bg-white rounded-xl border border-red-200 p-6 shadow-sm">
+                <h3 className="flex items-center gap-2 mb-2 text-red-600" style={{ fontSize: 18, fontWeight: 600 }}>
+                  <AlertTriangle size={20} /> Zona de Peligro
+                </h3>
+                <p className="text-muted-foreground mb-4" style={{ fontSize: 13 }}>
+                  Eliminar tu cuenta es una acción permanente. Todos tus datos serán desactivados.
+                </p>
+
+                {!showDeleteConfirm ? (
+                  <button
+                    onClick={() => setShowDeleteConfirm(true)}
+                    className="px-5 py-2.5 border-2 border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
+                    style={{ fontSize: 14, fontWeight: 600 }}
+                  >
+                    Eliminar mi cuenta
+                  </button>
+                ) : (
+                  <div className="bg-red-50 rounded-lg p-4 space-y-3 border border-red-200">
+                    <p className="text-red-700" style={{ fontSize: 13, fontWeight: 500 }}>
+                      ⚠️ Ingresa tu contraseña para confirmar la eliminación:
+                    </p>
+                    <input
+                      type="password"
+                      placeholder="Tu contraseña actual"
+                      value={deletePassword}
+                      onChange={(e) => setDeletePassword(e.target.value)}
+                      className="w-full max-w-sm px-4 py-2 rounded-lg border border-red-300 bg-white outline-none focus:border-red-500"
+                      style={{ fontSize: 14 }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleDeleteAccount}
+                        disabled={deletingAccount || !deletePassword}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-2"
+                        style={{ fontSize: 13, fontWeight: 600 }}
+                      >
+                        {deletingAccount && <Loader2 size={14} className="animate-spin" />}
+                        Confirmar Eliminación
+                      </button>
+                      <button
+                        onClick={() => { setShowDeleteConfirm(false); setDeletePassword(""); }}
+                        className="px-4 py-2 border border-border rounded-lg"
+                        style={{ fontSize: 13 }}
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

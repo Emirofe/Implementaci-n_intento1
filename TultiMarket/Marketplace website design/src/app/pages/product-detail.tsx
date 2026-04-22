@@ -14,7 +14,7 @@ import {
   Package,
   Loader2,
 } from "lucide-react";
-import { products as mockProducts, mockBundles, type Product } from "../data/mock-data";
+import { type Product } from "../data/mock-data";
 import { getProductoDetalleApi, getServicioDetalleApi } from "../api/api-client";
 import { StarRating } from "../components/star-rating";
 import { useStore } from "../context/store-context";
@@ -101,10 +101,9 @@ export function ProductDetailPage() {
   }
 
   const inWishlist = isInWishlist(product.id);
-  const sellerBundles = mockBundles.filter((b) => b.sellerId === product.sellerId);
-  const relatedProducts = mockProducts
-    .filter((p) => p.category === product.category && p.id !== product.id)
-    .slice(0, 4);
+  // TODO: Agregar endpoint de productos relacionados / bundles en el backend
+  const sellerBundles: any[] = [];
+  const relatedProducts: Product[] = [];
 
   const handleAddToCart = () => {
     if (isService) {

@@ -113,15 +113,23 @@ export function SellerServicesPage() {
         }
         toast.success("Servicio actualizado");
       } else {
-        await createServicioVendedorApi({
+        const result: any = await createServicioVendedorApi({
           nombre: formData.name,
           descripcion: formData.description || undefined,
           precio_base: parseFloat(formData.price),
           duracion_minutos: formData.duration ? parseInt(formData.duration) : undefined,
           id_negocio: negocioId,
           imagenes: imagenesUrls,
-          id_categorias: categoriasIds,
         });
+        
+        if (categoriasIds.length > 0 && result && result.id) {
+          await fetch(`http://localhost:3000/api/vendedor/servicios/${result.id}/categorias`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id_categorias: categoriasIds }),
+          });
+        }
         toast.success("Servicio creado");
       }
       closeForm();
@@ -141,8 +149,9 @@ export function SellerServicesPage() {
       description: service.descripcion ?? "",
       price: String(service.precio_base),
       duration: service.duracion_minutos ? String(service.duracion_minutos) : "",
-      category: dbCategories[0]?.id || "",
+      category: service.id_categoria ? String(service.id_categoria) : (dbCategories[0]?.id || ""),
     });
+    setImageUrl(service.imagen_principal || "");
     setShowForm(true);
   };
 

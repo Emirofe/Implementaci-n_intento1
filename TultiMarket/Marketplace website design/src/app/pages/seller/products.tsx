@@ -27,8 +27,9 @@ interface SellerProduct {
   precio: number;
   stock_total: number;
   sku: string | null;
-  esta_activo: boolean;
   fecha_registro: string;
+  id_categoria?: number | null;
+  imagen_principal?: string | null;
 }
 
 export function SellerProductsPage() {
@@ -123,15 +124,24 @@ export function SellerProductsPage() {
         }
         toast.success("Producto actualizado");
       } else {
-        await createProductoVendedorApi({
+        // En backend, createProductoVendedorApi ignora id_categorias, devuelve el producto
+        const result: any = await createProductoVendedorApi({
           nombre: formData.name,
           descripcion: formData.description || undefined,
           precio: parseFloat(formData.price),
           id_negocio: negocioId,
           stock_total: formData.stock ? parseInt(formData.stock) : 0,
           imagenes: imagenesUrls,
-          id_categorias: categoriasIds,
         });
+        
+        if (categoriasIds.length > 0 && result && result.id) {
+          await fetch(`http://localhost:3000/api/vendedor/productos/${result.id}/categorias`, {
+            method: "PUT",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id_categorias: categoriasIds }),
+          });
+        }
         toast.success("Producto creado");
       }
       closeForm();
@@ -152,8 +162,9 @@ export function SellerProductsPage() {
       description: product.descripcion ?? "",
       price: String(product.precio),
       stock: String(product.stock_total),
-      category: "cumpleanos",
+      category: product.id_categoria ? String(product.id_categoria) : (dbCategories[0]?.id || ""),
     });
+    setImageUrl(product.imagen_principal || "");
     setShowForm(true);
   };
 

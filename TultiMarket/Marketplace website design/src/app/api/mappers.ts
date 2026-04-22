@@ -270,7 +270,7 @@ export function mapDireccion(raw: RawDireccion): Address {
 }
 
 /** Convierte una dirección del FRONT al formato que espera el BACK (para POST) */
-export function mapDireccionToBack(addr: Omit<Address, "id">): object {
+export function mapDireccionToBack(addr: Omit<Address, "id"> & { latitud?: number; longitud?: number }): object {
   return {
     calle: addr.street,
     ciudad: addr.city,
@@ -280,6 +280,8 @@ export function mapDireccionToBack(addr: Omit<Address, "id">): object {
     es_principal: addr.isDefault,
     tipo_direccion: addr.label === "Casa" ? "hogar" :
       addr.label === "Oficina" ? "trabajo" : "otro",
+    latitud: addr.latitud ?? 19.4326,
+    longitud: addr.longitud ?? -99.1332,
   };
 }
 

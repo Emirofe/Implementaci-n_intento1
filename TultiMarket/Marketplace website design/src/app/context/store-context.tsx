@@ -23,6 +23,10 @@ import {
   deleteItemCarritoApi,
   vaciarCarritoApi,
   checkoutApi,
+  getNegocioVendedorApi,
+  getWishlistItemsApi,
+  addToWishlistApi,
+  removeFromWishlistApi,
 } from "../api/api-client";
 
 // ─── Tipo extendido del CarritoItem para guardar el id_item del backend ───────
@@ -30,10 +34,24 @@ interface CartItemConId extends CartItem {
   idItem?: number; // id del registro en carrito_items de la BD
 }
 
+interface WishlistItemBackend {
+  id: number; // id del wishlist_item en la BD
+  id_producto: number | null;
+  id_servicio: number | null;
+  fecha_agregado: string;
+  producto_nombre: string | null;
+  producto_precio: number | null;
+  producto_activo: boolean | null;
+  servicio_nombre: string | null;
+  servicio_precio: number | null;
+  servicio_activo: boolean | null;
+}
+
 interface StoreState {
   currentUser: User | null;
   cart: CartItemConId[];
   wishlist: Product[];
+  wishlistItemsMap: Map<string, number>; // productId -> wishlist_item.id
   orders: Order[];
   addresses: Address[];
   paymentMethods: PaymentMethod[];
@@ -51,9 +69,9 @@ interface StoreState {
   clearCart: () => Promise<void>;
   getCartTotal: () => number;
   getCartCount: () => number;
-  // Wishlist (local por ahora, sin backend)
-  addToWishlist: (product: Product) => void;
-  removeFromWishlist: (productId: string) => void;
+  // Wishlist (conectada al backend)
+  addToWishlist: (product: Product) => Promise<void>;
+  removeFromWishlist: (productId: string) => Promise<void>;
   isInWishlist: (productId: string) => boolean;
   // Orders
   placeOrder: (address: string, idDireccion?: number, idMetodoPago?: number) => Promise<Order>;
@@ -71,6 +89,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [cart, setCart] = useState<CartItemConId[]>([]);
   const [wishlist, setWishlist] = useState<Product[]>([]);
+  const [wishlistItemsMap, setWishlistItemsMap] = useState<Map<string, number>>(new Map());
   const [orders, setOrders] = useState<Order[]>([]);
   const [addresses, setAddresses] = useState<Address[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
@@ -128,6 +147,40 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // ─── Carga la wishlist desde el backend ───────────────────────────────────
+  const reloadWishlist = useCallback(async () => {
+    try {
+      const data = await getWishlistItemsApi();
+      const newMap = new Map<string, number>();
+      const products: Product[] = data.items.map((item) => {
+        const isProduct = item.id_producto !== null;
+        const productId = String(item.id_producto ?? item.id_servicio ?? 0);
+        newMap.set(productId, item.id);
+        return {
+          id: productId,
+          name: (isProduct ? item.producto_nombre : item.servicio_nombre) ?? "Sin nombre",
+          description: "",
+          price: Number((isProduct ? item.producto_precio : item.servicio_precio) ?? 0),
+          image: "https://placehold.co/400x400?text=Wishlist",
+          images: [],
+          category: "general",
+          rating: 0,
+          reviewCount: 0,
+          stock: isProduct ? 99 : 0,
+          sellerId: "0",
+          sellerName: "",
+          reviews: [],
+          type: isProduct ? "producto" as const : "servicio" as const,
+          status: "Aprobado" as const,
+        };
+      });
+      setWishlist(products);
+      setWishlistItemsMap(newMap);
+    } catch {
+      // Si falla (no logueado) no hacemos nada
+    }
+  }, []);
+
   // ─── AUTH ─────────────────────────────────────────────────────────────────
 
   const login = useCallback(async (email: string, password: string): Promise<User | null> => {
@@ -135,14 +188,20 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     try {
       const userWithNegocio = await loginApi(email, password);
       setCurrentUser(userWithNegocio);
-      // Guardar id_negocio si es vendedor
-      if (userWithNegocio.id_negocio) {
-        setNegocioId(userWithNegocio.id_negocio);
+      // Si es vendedor, obtener negocioId desde el endpoint del vendedor
+      if (userWithNegocio.role === "vendedor") {
+        try {
+          const negocioData = await getNegocioVendedorApi();
+          setNegocioId(negocioData.negocio.id);
+        } catch {
+          // El vendedor aún no tiene negocio creado, es normal
+        }
       }
       // Cargar datos del usuario al loguearse
       await reloadCart();
       await reloadAddresses();
       await reloadPaymentMethods();
+      await reloadWishlist();
       return userWithNegocio;
     } catch (error) {
       console.error("Error al iniciar sesión:", error);
@@ -150,7 +209,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsLoading(false);
     }
-  }, [reloadCart, reloadAddresses, reloadPaymentMethods]);
+  }, [reloadCart, reloadAddresses, reloadPaymentMethods, reloadWishlist]);
 
   const register = useCallback(async (
     name: string,
@@ -182,6 +241,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setCurrentUser(null);
       setCart([]);
+      setWishlist([]);
+      setWishlistItemsMap(new Map());
       setOrders([]);
       setAddresses([]);
       setPaymentMethods([]);
@@ -284,18 +345,50 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return cart.reduce((sum, item) => sum + item.quantity, 0);
   }, [cart]);
 
-  // ─── WISHLIST (local por ahora) ───────────────────────────────────────────
+  // ─── WISHLIST (conectada al backend) ───────────────────────────────────────
 
-  const addToWishlist = useCallback((product: Product) => {
-    setWishlist((prev) => {
-      if (prev.find((p) => p.id === product.id)) return prev;
-      return [...prev, product];
-    });
-  }, []);
+  const addToWishlist = useCallback(async (product: Product) => {
+    if (!currentUser) {
+      // Fallback local si no hay sesión
+      setWishlist((prev) => {
+        if (prev.find((p) => p.id === product.id)) return prev;
+        return [...prev, product];
+      });
+      return;
+    }
+    try {
+      const isService = product.type === "servicio";
+      await addToWishlistApi(
+        isService ? undefined : Number(product.id),
+        isService ? Number(product.id) : undefined
+      );
+      await reloadWishlist();
+    } catch (error: any) {
+      if (error?.message?.includes("ya existe")) {
+        return;
+      }
+      console.error("Error al agregar a wishlist:", error);
+      throw error;
+    }
+  }, [currentUser, reloadWishlist]);
 
-  const removeFromWishlist = useCallback((productId: string) => {
-    setWishlist((prev) => prev.filter((p) => p.id !== productId));
-  }, []);
+  const removeFromWishlist = useCallback(async (productId: string) => {
+    if (!currentUser) {
+      setWishlist((prev) => prev.filter((p) => p.id !== productId));
+      return;
+    }
+    const wishlistItemId = wishlistItemsMap.get(productId);
+    if (!wishlistItemId) {
+      setWishlist((prev) => prev.filter((p) => p.id !== productId));
+      return;
+    }
+    try {
+      await removeFromWishlistApi(wishlistItemId);
+      await reloadWishlist();
+    } catch (error) {
+      console.error("Error al eliminar de wishlist:", error);
+    }
+  }, [currentUser, wishlistItemsMap, reloadWishlist]);
 
   const isInWishlist = useCallback(
     (productId: string) => wishlist.some((p) => p.id === productId),
@@ -367,17 +460,23 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       .then(async (user) => {
         setCurrentUser(user);
         // Restaurar id_negocio si es vendedor
-        if (user.id_negocio) {
-          setNegocioId(user.id_negocio);
+        if (user.role === "vendedor") {
+          try {
+            const negocioData = await getNegocioVendedorApi();
+            setNegocioId(negocioData.negocio.id);
+          } catch {
+            // El vendedor aún no tiene negocio creado
+          }
         }
         await reloadCart();
         await reloadAddresses();
         await reloadPaymentMethods();
+        await reloadWishlist();
       })
       .catch(() => {
         // No hay sesión activa, es normal
       });
-  }, [reloadCart, reloadAddresses, reloadPaymentMethods]);
+  }, [reloadCart, reloadAddresses, reloadPaymentMethods, reloadWishlist]);
 
   return (
     <StoreContext.Provider
@@ -385,6 +484,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         currentUser,
         cart,
         wishlist,
+        wishlistItemsMap,
         orders,
         addresses,
         paymentMethods,

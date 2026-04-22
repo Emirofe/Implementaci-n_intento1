@@ -119,7 +119,7 @@ export async function registerApi(
   password: string,
   rol: "comprador" | "vendedor" = "comprador"
 ): Promise<User> {
-  const id_rol = rol === "vendedor" ? 3 : 2;
+  const id_rol = rol === "vendedor" ? 2 : 1;
   const data = await api<{
     usuario: { id: number; nombre: string; email: string };
   }>("/registrar", {
@@ -689,6 +689,8 @@ export async function getProductosVendedorApi(idNegocio: number) {
       sku: string | null;
       esta_activo: boolean;
       fecha_registro: string;
+      id_categoria?: number | null;
+      imagen_principal?: string | null;
     }>
   >(`/api/vendedor/productos/${idNegocio}`);
 }
@@ -776,6 +778,8 @@ export async function getServiciosVendedorApi(idNegocio: number) {
       calificacion: number | null;
       esta_activo: boolean;
       fecha_registro: string;
+      id_categoria?: number | null;
+      imagen_principal?: string | null;
     }>
   >(`/api/vendedor/servicios/${idNegocio}`);
 }
@@ -881,4 +885,93 @@ export async function createNegocioVendedorApi(datos: {
     method: "POST",
     body: JSON.stringify(datos),
   });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WISHLIST (requiere sesión activa)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * GET /comprador/wishlist
+ * Obtiene (o crea automáticamente) la wishlist única del usuario.
+ * Response: { wishlist: { id, id_usuario, nombre, es_publica, fecha_creacion }, total_items }
+ */
+export async function getWishlistApi() {
+  return api<{
+    wishlist: {
+      id: number;
+      id_usuario: number;
+      nombre: string;
+      es_publica: boolean;
+      fecha_creacion: string;
+    };
+    total_items: number;
+  }>("/comprador/wishlist");
+}
+
+/**
+ * GET /comprador/wishlist/items
+ * Obtiene los ítems de la wishlist con información del producto/servicio.
+ */
+export async function getWishlistItemsApi() {
+  return api<{
+    lista: {
+      id: number;
+      id_usuario: number;
+      nombre: string;
+      es_publica: boolean;
+      fecha_creacion: string;
+    };
+    total_items: number;
+    items: Array<{
+      id: number;
+      id_producto: number | null;
+      id_servicio: number | null;
+      fecha_agregado: string;
+      producto_nombre: string | null;
+      producto_precio: number | null;
+      producto_activo: boolean | null;
+      servicio_nombre: string | null;
+      servicio_precio: number | null;
+      servicio_activo: boolean | null;
+    }>;
+  }>("/comprador/wishlist/items");
+}
+
+/**
+ * POST /comprador/wishlist/items
+ * Agrega un producto o servicio a la wishlist.
+ * Body: { id_producto: number } | { id_servicio: number }
+ */
+export async function addToWishlistApi(
+  idProducto?: number,
+  idServicio?: number
+) {
+  return api<{
+    mensaje: string;
+    item: {
+      id: number;
+      id_lista: number;
+      id_producto: number | null;
+      id_servicio: number | null;
+      fecha_agregado: string;
+    };
+  }>("/comprador/wishlist/items", {
+    method: "POST",
+    body: JSON.stringify({
+      id_producto: idProducto ?? null,
+      id_servicio: idServicio ?? null,
+    }),
+  });
+}
+
+/**
+ * DELETE /comprador/wishlist/items/:idItem
+ * Elimina un ítem específico de la wishlist.
+ */
+export async function removeFromWishlistApi(idItem: number) {
+  return api<{ mensaje: string }>(
+    `/comprador/wishlist/items/${idItem}`,
+    { method: "DELETE" }
+  );
 }

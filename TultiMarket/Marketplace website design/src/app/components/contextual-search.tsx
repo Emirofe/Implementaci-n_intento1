@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Search, Loader, Brain } from "lucide-react";
-import { products } from "../data/mock-data";
+import { type Product } from "../data/mock-data";
+import { getCategoriasApi, getProductosPorCategoriaApi, getServiciosPorCategoriaApi } from "../api/api-client";
 
 interface ContextAnalysis {
   eventType: string;
@@ -12,15 +13,39 @@ interface ContextAnalysis {
 
 interface RecommendationResponse {
   analysis: ContextAnalysis;
-  recommendations: typeof products;
+  recommendations: Product[];
   explanation: string;
 }
 
-export function ContextualSearch({ onResultsFound }: { onResultsFound: (results: typeof products, analysis: ContextAnalysis) => void }) {
+export function ContextualSearch({ onResultsFound }: { onResultsFound: (results: Product[], analysis: ContextAnalysis) => void }) {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [analysis, setAnalysis] = useState<ContextAnalysis | null>(null);
+  const [allProducts, setAllProducts] = useState<Product[]>([]);
+
+  // Cargar todos los productos y servicios del backend al montar
+  useEffect(() => {
+    getCategoriasApi()
+      .then(async (cats) => {
+        const allProds: Product[] = [];
+        for (const cat of cats) {
+          const catId = Number(cat.id);
+          if (isNaN(catId)) continue;
+          try {
+            const [prods, servs] = await Promise.all([
+              getProductosPorCategoriaApi(catId).catch(() => []),
+              getServiciosPorCategoriaApi(catId).catch(() => []),
+            ]);
+            allProds.push(...prods, ...servs);
+          } catch { /* skip */ }
+        }
+        // Eliminar duplicados por ID
+        const unique = Array.from(new Map(allProds.map((p) => [p.id, p])).values());
+        setAllProducts(unique);
+      })
+      .catch(() => setAllProducts([]));
+  }, []);
 
   // Simular análisis de contexto en el frontend
   // En producción, esto sería un endpoint del backend
@@ -150,9 +175,9 @@ export function ContextualSearch({ onResultsFound }: { onResultsFound: (results:
     };
   };
 
-  // Simular búsqueda en backend con análisis mejorado
-  const getRecommendations = (analysis: ContextAnalysis): typeof products => {
-    let results = [...products];
+  // Filtrar productos reales del backend con análisis contextual
+  const getRecommendations = (analysis: ContextAnalysis): Product[] => {
+    let results = [...allProducts];
 
     console.log("Analizando contexto:", analysis);
     console.log("Categorías relevantes:", analysis.relevantCategories);
@@ -199,7 +224,7 @@ export function ContextualSearch({ onResultsFound }: { onResultsFound: (results:
 
     // Si no hay resultados en categorías, retornar los más relevantes de todas formas
     if (results.length === 0) {
-      results = [...products].sort((a, b) => b.rating - a.rating);
+      results = [...allProducts].sort((a, b) => b.rating - a.rating);
     }
 
     return results.slice(0, 12);
