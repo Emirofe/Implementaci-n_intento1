@@ -258,8 +258,7 @@ export function mapUsuario(raw: RawUsuario): User {
 export function mapDireccion(raw: RawDireccion): Address {
   return {
     id: String(raw.id),
-    label: raw.tipo_direccion === "hogar" ? "Casa" :
-      raw.tipo_direccion === "trabajo" ? "Oficina" : raw.tipo_direccion,
+    label: raw.tipo_direccion || "Sin etiqueta",
     street: raw.calle,
     city: raw.ciudad,
     state: raw.estado,
@@ -278,8 +277,7 @@ export function mapDireccionToBack(addr: Omit<Address, "id"> & { latitud?: numbe
     codigo_postal: addr.zip,
     pais: addr.country,
     es_principal: addr.isDefault,
-    tipo_direccion: addr.label === "Casa" ? "hogar" :
-      addr.label === "Oficina" ? "trabajo" : "otro",
+    tipo_direccion: addr.label || "hogar",
     latitud: addr.latitud ?? 19.4326,
     longitud: addr.longitud ?? -99.1332,
   };

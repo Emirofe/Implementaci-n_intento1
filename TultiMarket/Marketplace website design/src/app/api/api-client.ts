@@ -349,7 +349,7 @@ export async function getMisDireccionesApi(): Promise<Address[]> {
  *
  * BUG CORREGIDO ANTERIORMENTE: Quitamos geo_location/PostGIS del INSERT del back.
  */
-export async function addDireccionApi(addr: Omit<Address, "id">): Promise<number> {
+export async function addDireccionApi(addr: Omit<Address, "id"> & { latitud?: number; longitud?: number }): Promise<number> {
   const body = mapDireccionToBack(addr);
   const data = await api<{ id_direccion: number }>("/comprador/cuenta/direcciones", {
     method: "POST",
@@ -490,6 +490,8 @@ export async function getCarritoApi() {
       id_producto: number | null;
       id_servicio: number | null;
       nombre: string;
+      imagen: string | null;
+      stock_maximo: number;
       empresa: string;
       cantidad: number;
       precio_unitario: number;

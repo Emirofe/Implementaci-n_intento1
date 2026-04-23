@@ -76,7 +76,7 @@ interface StoreState {
   // Orders
   placeOrder: (address: string, idDireccion?: number, idMetodoPago?: number) => Promise<Order>;
   // Addresses
-  addAddress: (address: Omit<Address, "id">) => Promise<void>;
+  addAddress: (address: Omit<Address, "id"> & { latitud?: number; longitud?: number }) => Promise<void>;
   removeAddress: (id: string) => Promise<void>;
   reloadAddresses: () => Promise<void>;
   reloadPaymentMethods: () => Promise<void>;
@@ -107,12 +107,12 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           name: item.nombre,
           description: "",
           price: item.precio_unitario,
-          image: "",
+          image: item.imagen ?? "https://placehold.co/400x400?text=Sin+Imagen",
           images: [],
           category: "general",
           rating: 0,
           reviewCount: 0,
-          stock: 99,
+          stock: item.stock_maximo > 0 ? item.stock_maximo : (item.tipo_item === "servicio" ? 99 : 0),
           sellerId: "0",
           sellerName: item.empresa,
           reviews: [],
@@ -426,7 +426,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   // ─── DIRECCIONES ──────────────────────────────────────────────────────────
 
-  const addAddress = useCallback(async (address: Omit<Address, "id">) => {
+  const addAddress = useCallback(async (address: Omit<Address, "id"> & { latitud?: number; longitud?: number }) => {
     if (!currentUser) {
       setAddresses((prev) => [...prev, { ...address, id: `a${Date.now()}` }]);
       return;

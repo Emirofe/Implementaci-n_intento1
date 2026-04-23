@@ -38,7 +38,8 @@ export function ProfilePage() {
 
   // ─── Direcciones ────────────────────────────────────────────────
   const [showAddAddress, setShowAddAddress] = useState(false);
-  const [newAddr, setNewAddr] = useState({ label: "", street: "", city: "", state: "", zip: "", country: "" });
+  const [newAddr, setNewAddr] = useState({ label: "", street: "", city: "", state: "", zip: "", country: "", latitud: "", longitud: "" });
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
 
   // ─── Métodos de Pago ────────────────────────────────────────────
   const [showAddPayment, setShowAddPayment] = useState(false);
@@ -117,15 +118,66 @@ export function ProfilePage() {
   // ────────────────────────────────────────────────────────────────
   const handleAddAddress = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!newAddr.latitud || !newAddr.longitud) {
+      toast.error("Debes proporcionar las coordenadas (Latitud y Longitud)");
+      return;
+    }
+    if (isFetchingLocation) {
+      toast.info("Por favor espera, obteniendo ubicación...");
+      return;
+    }
     try {
-      await addAddress({ ...newAddr, isDefault: addresses.length === 0 });
-      setNewAddr({ label: "", street: "", city: "", state: "", zip: "", country: "" });
+      await addAddress({ 
+        ...newAddr, 
+        latitud: Number(newAddr.latitud),
+        longitud: Number(newAddr.longitud),
+        isDefault: addresses.length === 0 
+      } as any);
+      setNewAddr({ label: "", street: "", city: "", state: "", zip: "", country: "", latitud: "", longitud: "" });
       setShowAddAddress(false);
       toast.success("Direccion agregada");
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Error al agregar direccion";
       toast.error(msg);
     }
+  };
+
+  const handleGetLocation = () => {
+    if (!navigator.geolocation) {
+      toast.error("Tu navegador no soporta geolocalización");
+      return;
+    }
+    setIsFetchingLocation(true);
+    let done = false;
+
+    // watchPosition sigue intentando hasta obtener la ubicación
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        if (done) return;
+        done = true;
+        navigator.geolocation.clearWatch(watchId);
+        setNewAddr((prev) => ({
+          ...prev,
+          latitud: position.coords.latitude.toString(),
+          longitud: position.coords.longitude.toString(),
+        }));
+        toast.success("Ubicación obtenida correctamente");
+        setIsFetchingLocation(false);
+      },
+      () => {
+        // No hacemos nada aquí — watchPosition reintenta automáticamente
+      },
+      { enableHighAccuracy: false, maximumAge: 60000 }
+    );
+
+    // Timeout de seguridad: si en 20s no hay ubicación, cancelamos
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      navigator.geolocation.clearWatch(watchId);
+      toast.error("No se pudo obtener la ubicación. Ingresa las coordenadas manualmente.");
+      setIsFetchingLocation(false);
+    }, 20000);
   };
 
   // ────────────────────────────────────────────────────────────────
@@ -377,10 +429,10 @@ export function ProfilePage() {
               {showAddAddress && (
                 <form onSubmit={handleAddAddress} className="bg-gray-50 rounded-lg p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3 border border-dashed border-primary/30">
                   <input
-                    placeholder="Etiqueta (Casa, Oficina...)"
+                    placeholder="Etiqueta (Ej. Casa, Depa)"
                     value={newAddr.label}
                     onChange={(e) => setNewAddr({ ...newAddr, label: e.target.value })}
-                    className="px-3 py-2 rounded-lg border border-border bg-white" style={{ fontSize: 14 }}
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-white" style={{ fontSize: 14 }}
                     required
                   />
                   <input
@@ -418,9 +470,44 @@ export function ProfilePage() {
                     className="px-3 py-2 rounded-lg border border-border bg-white" style={{ fontSize: 14 }}
                     required
                   />
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-4 py-2 bg-primary text-white rounded-lg" style={{ fontSize: 14 }}>Guardar</button>
-                    <button type="button" onClick={() => setShowAddAddress(false)} className="px-4 py-2 border border-border rounded-lg" style={{ fontSize: 14 }}>Cancelar</button>
+                  
+                  {/* Coordenadas */}
+                  <div className="sm:col-span-2 flex flex-col sm:flex-row gap-3 items-end bg-white p-3 border border-border rounded-lg mt-2">
+                    <div className="flex-1 w-full">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Latitud *</label>
+                      <input
+                        type="number" step="any"
+                        value={newAddr.latitud}
+                        onChange={(e) => setNewAddr({ ...newAddr, latitud: e.target.value })}
+                        placeholder="Ej. 19.432608"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-gray-50 focus:bg-white" style={{ fontSize: 14 }}
+                      />
+                    </div>
+                    <div className="flex-1 w-full">
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Longitud *</label>
+                      <input
+                        type="number" step="any"
+                        value={newAddr.longitud}
+                        onChange={(e) => setNewAddr({ ...newAddr, longitud: e.target.value })}
+                        placeholder="Ej. -99.133209"
+                        className="w-full px-3 py-2 rounded-lg border border-border bg-gray-50 focus:bg-white" style={{ fontSize: 14 }}
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); handleGetLocation(); }}
+                      disabled={isFetchingLocation}
+                      className="w-full sm:w-auto px-6 py-2 border border-primary text-primary rounded-lg font-medium hover:bg-primary/5 disabled:opacity-50 transition-colors whitespace-nowrap flex items-center justify-center gap-2"
+                      style={{ fontSize: 14 }}
+                    >
+                      {isFetchingLocation && <Loader2 size={14} className="animate-spin" />}
+                      {isFetchingLocation ? "Obteniendo..." : newAddr.latitud ? "Actualizar GPS" : "Obtener GPS"}
+                    </button>
+                  </div>
+
+                  <div className="sm:col-span-2 flex gap-2 mt-2">
+                    <button type="submit" disabled={isFetchingLocation} className="px-6 py-2 bg-primary text-white rounded-lg font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors" style={{ fontSize: 14 }}>Guardar Dirección</button>
+                    <button type="button" onClick={() => setShowAddAddress(false)} className="px-6 py-2 border border-border rounded-lg font-medium hover:bg-gray-50 transition-colors" style={{ fontSize: 14 }}>Cancelar</button>
                   </div>
                 </form>
               )}
@@ -435,7 +522,7 @@ export function ProfilePage() {
                         <div className="flex items-center gap-2">
                           <p style={{ fontSize: 14, fontWeight: 600 }}>{addr.label}</p>
                           {addr.isDefault && (
-                            <span className="bg-primary/20 text-primary px-2 py-0.5 rounded-full" style={{ fontSize: 10, fontWeight: 600 }}>PREDETERMINADA</span>
+                            <span className="bg-primary/10 text-primary px-2.5 py-0.5 rounded-full border border-primary/20" style={{ fontSize: 11, fontWeight: 500 }}>Envío predeterminado</span>
                           )}
                         </div>
                         <p className="text-muted-foreground mt-1" style={{ fontSize: 14 }}>
@@ -480,7 +567,7 @@ export function ProfilePage() {
               {showAddPayment && (
                 <form onSubmit={handleAddPayment} className="bg-gray-50 rounded-lg p-4 mb-6 grid grid-cols-1 sm:grid-cols-2 gap-3 border border-dashed border-primary/30">
                   <div>
-                    <label className="block mb-1 text-muted-foreground" style={{ fontSize: 12 }}>Proveedor</label>
+                    <label className="block mb-1 text-muted-foreground" style={{ fontSize: 12 }}>Método de Pago</label>
                     <select
                       value={newPayment.provider}
                       onChange={(e) => setNewPayment({ ...newPayment, provider: e.target.value })}
@@ -625,10 +712,10 @@ export function ProfilePage() {
               {/* Eliminar Cuenta */}
               <div className="bg-white rounded-xl border border-red-200 p-6 shadow-sm">
                 <h3 className="flex items-center gap-2 mb-2 text-red-600" style={{ fontSize: 18, fontWeight: 600 }}>
-                  <AlertTriangle size={20} /> Zona de Peligro
+                  <AlertTriangle size={20} /> Gestión de Cuenta
                 </h3>
                 <p className="text-muted-foreground mb-4" style={{ fontSize: 13 }}>
-                  Eliminar tu cuenta es una acción permanente. Todos tus datos serán desactivados.
+                  Al desactivar tu cuenta, tu perfil dejará de ser visible y no podrás iniciar sesión. Tu historial de compras se conservará por seguridad.
                 </p>
 
                 {!showDeleteConfirm ? (
@@ -637,12 +724,12 @@ export function ProfilePage() {
                     className="px-5 py-2.5 border-2 border-red-300 text-red-600 rounded-lg hover:bg-red-50 transition-colors"
                     style={{ fontSize: 14, fontWeight: 600 }}
                   >
-                    Eliminar mi cuenta
+                    Desactivar mi cuenta
                   </button>
                 ) : (
                   <div className="bg-red-50 rounded-lg p-4 space-y-3 border border-red-200">
                     <p className="text-red-700" style={{ fontSize: 13, fontWeight: 500 }}>
-                      ⚠️ Ingresa tu contraseña para confirmar la eliminación:
+                      ⚠️ Ingresa tu contraseña para confirmar la desactivación de tu cuenta:
                     </p>
                     <input
                       type="password"
@@ -660,7 +747,7 @@ export function ProfilePage() {
                         style={{ fontSize: 13, fontWeight: 600 }}
                       >
                         {deletingAccount && <Loader2 size={14} className="animate-spin" />}
-                        Confirmar Eliminación
+                        Confirmar Desactivación
                       </button>
                       <button
                         onClick={() => { setShowDeleteConfirm(false); setDeletePassword(""); }}

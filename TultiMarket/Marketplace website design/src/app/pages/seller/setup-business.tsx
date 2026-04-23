@@ -37,36 +37,47 @@ export function SetupBusiness({ onComplete }: SetupBusinessProps) {
 
     setIsFetchingLocation(true);
     setLocationError("");
+    let done = false;
 
-    navigator.geolocation.getCurrentPosition(
+    // watchPosition sigue intentando hasta obtener la ubicación
+    const watchId = navigator.geolocation.watchPosition(
       (position) => {
+        if (done) return;
+        done = true;
+        navigator.geolocation.clearWatch(watchId);
         setFormData((prev) => ({
           ...prev,
           latitud: position.coords.latitude.toString(),
           longitud: position.coords.longitude.toString(),
         }));
+        setLocationError("");
         toast.success("Ubicación obtenida correctamente");
         setIsFetchingLocation(false);
       },
-      (error) => {
-        let errorMsg = "Error al obtener ubicación";
-        if (error.code === error.PERMISSION_DENIED) {
-          errorMsg = "Por favor, permite el acceso a tu ubicación.";
-        } else if (error.code === error.POSITION_UNAVAILABLE) {
-          errorMsg = "La información de ubicación no está disponible.";
-        } else if (error.code === error.TIMEOUT) {
-          errorMsg = "Tiempo de espera agotado al obtener ubicación.";
-        }
-        setLocationError(errorMsg);
-        toast.error(errorMsg);
-        setIsFetchingLocation(false);
+      () => {
+        // No hacemos nada aquí — watchPosition reintenta automáticamente
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: false, maximumAge: 60000 }
     );
+
+    // Timeout de seguridad: si en 20s no hay ubicación, cancelamos
+    setTimeout(() => {
+      if (done) return;
+      done = true;
+      navigator.geolocation.clearWatch(watchId);
+      setLocationError("No se pudo obtener la ubicación. Ingresa las coordenadas manualmente.");
+      toast.error("No se pudo obtener la ubicación.");
+      setIsFetchingLocation(false);
+    }, 20000);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (isFetchingLocation) {
+      toast.info("Por favor espera, obteniendo ubicación...");
+      return;
+    }
 
     if (!formData.latitud || !formData.longitud) {
       toast.error("Debes obtener la ubicación exacta de tu negocio antes de continuar");
@@ -294,7 +305,7 @@ export function SetupBusiness({ onComplete }: SetupBusinessProps) {
                           value={formData.latitud}
                           onChange={handleChange}
                           placeholder="Ej. 19.432608"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-primary focus:border-primary outline-none transition-colors bg-white"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-primary focus:border-primary outline-none transition-colors bg-white h-[42px]"
                         />
                       </div>
                       <div className="flex-1">
@@ -306,7 +317,7 @@ export function SetupBusiness({ onComplete }: SetupBusinessProps) {
                           value={formData.longitud}
                           onChange={handleChange}
                           placeholder="Ej. -99.133209"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-primary focus:border-primary outline-none transition-colors bg-white"
+                          className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:ring-primary focus:border-primary outline-none transition-colors bg-white h-[42px]"
                         />
                       </div>
                     </div>
@@ -316,14 +327,14 @@ export function SetupBusiness({ onComplete }: SetupBusinessProps) {
                     type="button"
                     onClick={handleGetLocation}
                     disabled={isFetchingLocation}
-                    className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-colors"
+                    className="flex-shrink-0 flex items-center justify-center gap-2 px-6 py-2 bg-white border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary disabled:opacity-50 transition-colors h-[42px] w-full sm:w-auto"
                   >
                     {isFetchingLocation ? (
                       <Loader2 className="w-4 h-4 animate-spin text-primary" />
                     ) : (
                       <MapPin className="w-4 h-4 text-primary" />
                     )}
-                    {formData.latitud ? "Actualizar Ubicación" : "Obtener mi ubicación"}
+                    {isFetchingLocation ? "Obteniendo..." : formData.latitud ? "Actualizar" : "Obtener"}
                   </button>
                 </div>
               </div>
